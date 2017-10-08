@@ -23,6 +23,7 @@ class FSScanProcessorCommand(object):
     GET_LASER_STREAM = "GET_LASER_STREAM"
     GET_TEXTURE_STREAM = "GET_TEXTURE_STREAM"
     NOTIFY_IF_NOT_CALIBRATED = "NOTIFY_IF_NOT_CALIBRATED"
+    CALL_HARDWARE_TEST_FUNCTION = "CALL_HARDWARE_TEST_FUNCTION"
 
 class FSScanProcessorInterface(ThreadingActor):
     def __init__(self, config, settings, eventmanager, imageprocessor, hardwarecontroller, calibration):

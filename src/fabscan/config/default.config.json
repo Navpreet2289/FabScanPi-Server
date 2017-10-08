@@ -3,11 +3,6 @@
         "www": "/usr/share/fabscanpi/",
         "scans": "/home/pi/scans/"
     },
-    "laser": {
-        "steps": 3200,
-        "numbers": 1,
-        "rotation_steps": 5
-    },
     "scanner_type": "laserscanner",
     "calibration": {
         "weight_matrix": [],
@@ -51,6 +46,11 @@
         "hflip": "True",
         "vflip": "False",
         "type": "PICAM"
+    },
+    "laser": {
+        "steps": 3200,
+        "numbers": 1,
+        "rotation_steps": 5
     },
     "serial": {
         "baudrate": 57600,

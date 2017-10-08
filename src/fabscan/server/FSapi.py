@@ -14,13 +14,15 @@ from PIL import Image
 
 from fabscan.util.FSUtil import json2obj
 from fabscan.FSConfig import ConfigInterface
+from fabscan.scanner.interfaces.FSHardwareController import FSHardwareControllerInterface
 from fabscan.util.FSInject import inject
 
 @inject(
-    config=ConfigInterface
+    config=ConfigInterface,
+    hardwarecontroller=FSHardwareControllerInterface
 )
 class FSRest():
-    def __init__(self, config):
+    def __init__(self, config, hardwarecontroller):
 
         self.config = config
         self._logger = logging.getLogger(__name__)

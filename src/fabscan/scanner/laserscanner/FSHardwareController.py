@@ -48,10 +48,52 @@ class FSHardwareControllerSingleton(FSHardwareControllerInterface):
 
         self._logger.debug("Reset FabScanPi HAT...")
         self.laser.off(laser=0)
-        #self.laser.off(laser=1)
+        self.laser.off(laser=1)
         self.led.off()
         self.turntable.stop_turning()
         self._logger.debug("Hardware controller initialized...")
+
+        self.hardware_test_functions = {
+            "TURNTABLE": {
+                "FUNCTIONS": {
+                    "START": self.turntable.start_turning,
+                    "STOP": self.turntable.stop_turning
+                },
+                "LABEL": "Turntable"
+            },
+            "LEFT_LASER": {
+                "FUNCTIONS": {
+                    "ON": lambda: self.laser.on(0),
+                    "OFF": lambda: self.laser.off(0)
+                },
+                "LABEL": "Left Laser"
+            },
+            "RIGHT_LASER": {
+                "FUNCTIONS": {
+                    "ON": lambda: self.laser.on(1),
+                    "OFF": lambda: self.laser.off(1)
+                },
+                "LABEL": "Rechter Laser"
+            },
+            "LED_RING": {
+                "FUNCTIONS": {
+                    "ON": lambda: self.led.on(255, 255, 255),
+                    "OFF": self.led.off()
+                },
+                "LABEL": "Led Ring"
+            }
+        }
+
+    def c(self):
+        pass
+
+    def call_test_function(self, device):
+        device_name = device.name
+        device_value = device.function
+        self._logger.debug(device)
+        #self._logger.debug(str(device_name)+" "+str(device_value))
+        call_function = self.hardware_test_functions.get(device_name).get("FUNCTIONS").get(device_value)
+        call_function()
 
     def flush(self):
         self.camera.camera_buffer.flush()

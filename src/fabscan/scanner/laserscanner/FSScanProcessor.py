@@ -125,6 +125,14 @@ class FSScanProcessorSingleton(FSScanProcessorInterface):
         if event[FSEvents.COMMAND] == FSScanProcessorCommand.NOTIFY_IF_NOT_CALIBRATED:
             return self.notify_if_is_not_calibrated()
 
+        if event[FSEvents.COMMAND] == FSScanProcessorCommand.CALL_HARDWARE_TEST_FUNCTION:
+            device = event['DEVICE_TEST']
+            self.hardwareController.call_test_function(device)
+
+
+    def call_hardware_test_function(self, function):
+        self.hardwareController.call_test_function(function)
+
     def notify_if_is_not_calibrated(self):
         self._logger.debug(self.config.calibration.camera_matrix)
         is_calibrated = not (self.config.calibration.camera_matrix == [])
@@ -137,8 +145,6 @@ class FSScanProcessorSingleton(FSScanProcessorInterface):
             }
 
             self.eventmanager.broadcast_client_message(FSEvents.ON_INFO_MESSAGE, message)
-
-
 
     def create_texture_stream(self):
         try:

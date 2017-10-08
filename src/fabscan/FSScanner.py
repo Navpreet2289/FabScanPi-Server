@@ -29,6 +29,7 @@ class FSCommand(object):
     START = "START"
     STOP = "STOP"
     CALIBRATE = "CALIBRATE"
+    HARDWARE_TEST_FUNCTION = "HARDWARE_TEST_FUNCTION"
     UPDATE_SETTINGS = "UPDATE_SETTINGS"
     MESHING = "MESHING"
     COMPLETE = "COMPLETE"
@@ -117,6 +118,10 @@ class FSScanner(threading.Thread):
                 self.scanProcessor.ask({FSEvents.COMMAND: FSScanProcessorCommand.STOP_CALIBRATION})
 
             self.set_state(FSState.IDLE)
+
+        elif command == FSCommand.HARDWARE_TEST_FUNCTION:
+            self._logger.debug("Test Function called...")
+            self.scanProcessor.ask({FSEvents.COMMAND: FSScanProcessorCommand.CALL_HARDWARE_TEST_FUNCTION, 'DEVICE_TEST': event.device})
 
         # Start calibration
         elif command == FSCommand.CALIBRATE:
