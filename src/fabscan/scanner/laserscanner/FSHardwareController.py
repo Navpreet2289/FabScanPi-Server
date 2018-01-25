@@ -6,6 +6,7 @@ __email__ = "info@mariolukas.de"
 
 import logging
 import time
+import copy
 
 from FSLaser import Laser
 from FSLed import Led
@@ -78,20 +79,30 @@ class FSHardwareControllerSingleton(FSHardwareControllerInterface):
             "LED_RING": {
                 "FUNCTIONS": {
                     "ON": lambda: self.led.on(255, 255, 255),
-                    "OFF": self.led.off()
+                    "OFF": lambda: self.led.off()
                 },
                 "LABEL": "Led Ring"
             }
         }
 
-    def c(self):
-        pass
+
+    def get_devices_as_json(self):
+        devices = copy.deepcopy(self.hardware_test_functions)
+        for fnct in self.hardware_test_functions:
+            devices[fnct]['FUNCTIONS'] = self.hardware_test_functions[fnct]['FUNCTIONS'].keys()
+        return devices
+
+    def reset_devices(self):
+        self.laser.off(0)
+        self.laser.off(1)
+        self.led.off()
+        self.turntable.stop_turning()
+        self.camera.device.stopStream()
 
     def call_test_function(self, device):
-        device_name = device.name
-        device_value = device.function
-        self._logger.debug(device)
-        #self._logger.debug(str(device_name)+" "+str(device_value))
+        device_name = str(device.name)
+        device_value = str(device.function)
+        #self._logger.debug(device)
         call_function = self.hardware_test_functions.get(device_name).get("FUNCTIONS").get(device_value)
         call_function()
 
@@ -102,19 +113,19 @@ class FSHardwareControllerSingleton(FSHardwareControllerInterface):
     def settings_mode_on(self):
         self._settings_mode_is_off = False
         self.camera.device.flushStream()
-        self.camera.device.startStream()
+        #self.camera.device.startStream()
         self.laser.on(laser=0)
         self.turntable.start_turning()
 
 
     def settings_mode_off(self):
         self._settings_mode_is_off = True
-        self.turntable.stop_turning()
-        self.led.off()
-        self.laser.off(laser=0)
-        self.camera.device.stopStream()
+        self.reset_hardware()
+
 
     def get_picture(self):
+        #if self.camera.device.is_idle():
+        #    self.camera.device.startStream()
         img = self.camera.device.getFrame()
         return img
 
@@ -124,6 +135,12 @@ class FSHardwareControllerSingleton(FSHardwareControllerInterface):
         pattern_image = self.get_picture()
         self.led.off()
         return pattern_image
+
+    def reset_hardware(self):
+        self.led.off()
+        self.laser.off(0)
+        self.laser.off(1)
+        self.turntable.stop_turning()
 
     def get_laser_image(self, index):
         #self._hardwarecontroller.led.on(30, 30, 30)
@@ -161,7 +178,9 @@ class FSHardwareControllerSingleton(FSHardwareControllerInterface):
        return self.camera.is_connected()
 
     def start_camera_stream(self):
-        self.camera.device.startStream()
+        pass
+        #self.camera.device.startStream()
 
     def stop_camera_stream(self):
-        self.camera.device.stopStream()
+        pass
+        #self.camera.device.stopStream()

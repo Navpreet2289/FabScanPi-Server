@@ -116,7 +116,7 @@ class FSSerialCom():
                   self._firmware_version = current_version
                   self._connected = True
            else:
-                  self._logger.error("Can not find Arduino or FabScanPi HAT")
+                  self._logger.error("Can not find FabScanPi HAT")
                   self._connected = False
 
         except:

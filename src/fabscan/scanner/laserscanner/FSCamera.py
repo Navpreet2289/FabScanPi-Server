@@ -12,6 +12,8 @@ import os
 import time
 import sys, re, threading, collections
 import traceback
+from datetime import datetime
+
 
 from fabscan.util.FSInject import inject, singleton
 from fabscan.FSConfig import ConfigInterface
@@ -177,6 +179,10 @@ class PiCam(threading.Thread):
         self.awb_default_gain = 0
         self.is_idle = True
         self._current_mode = 'custom'
+        self._idle_seconds = 120
+        self._idle_timestamp = 0
+        self._compare_time = datetime.max
+        self._start_time = datetime.max
         self._logger = logging.getLogger(__name__)
 
         self.start()
@@ -193,10 +199,13 @@ class PiCam(threading.Thread):
                 self.camera.framerate = 24
 
                 while True:
+
                     if not self.is_idle:
                        try:
                             stream = io.BytesIO()
                             for foo in self.camera.capture_continuous(stream, format='jpeg', use_video_port=True):
+
+                                self.check_for_stream_suspend()
 
                                 self.camera.contrast = self.settings.camera.contrast
                                 self.camera.brightness = self.settings.camera.brightness
@@ -239,6 +248,12 @@ class PiCam(threading.Thread):
             self.camera = None
             pass
 
+    def check_for_stream_suspend(self):
+        self._compare_time = datetime.now()
+        if (self._compare_time - self._start_time).total_seconds() > self._idle_seconds and not self.is_idle:
+            self._logger.debug("Stream suspended... ")
+            self.is_idle = True
+
     def flushStream(self):
         self.camera_buffer.flush()
 
@@ -253,20 +268,27 @@ class PiCam(threading.Thread):
 
     def getFrame(self):
         image = None
+        #if self.is_idle:
+        self._start_time = datetime.now()
+        self.is_idle = False
+
         while image is None:
            image = self.camera_buffer.get()
         return image
 
+    def isIdle(self):
+        return self.is_idle
+
     def startStream(self, auto_exposure=False, exposure_type="flash"):
         self.setExposureMode(auto_exposure=auto_exposure, exposure_type=exposure_type)
-        self.semaphore.acquire()
-        self.is_idle = False
-        self.semaphore.release()
+        #self.semaphore.acquire()
+        #self.is_idle = False
+        #self.semaphore.release()
 
     def stopStream(self):
-        self.semaphore.acquire()
+        #self.semaphore.acquire()
         self.is_idle = True
-        self.semaphore.release()
+        #self.semaphore.release()
 
     def flushStream(self):
         self.camera_buffer.flush()

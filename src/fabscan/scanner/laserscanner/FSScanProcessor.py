@@ -27,8 +27,6 @@ from fabscan.scanner.interfaces.FSImageProcessor import ImageProcessorInterface
 from fabscan.scanner.interfaces.FSScanProcessor import FSScanProcessorCommand
 from fabscan.scanner.interfaces.FSCalibration import FSCalibrationInterface
 
-
-
 @singleton(
     config=ConfigInterface,
     settings=SettingsInterface,
@@ -37,7 +35,7 @@ from fabscan.scanner.interfaces.FSCalibration import FSCalibrationInterface
     hardwarecontroller=FSHardwareControllerInterface,
     calibration=FSCalibrationInterface
 )
-class FSScanProcessorSingleton(FSScanProcessorInterface):
+class FSScanProcessor(FSScanProcessorInterface):
     def __init__(self, config, settings, eventmanager, imageprocessor, hardwarecontroller, calibration):
         super(FSScanProcessorInterface, self).__init__(self, config, settings, eventmanager, imageprocessor, hardwarecontroller, calibration)
 
@@ -76,7 +74,8 @@ class FSScanProcessorSingleton(FSScanProcessorInterface):
         self._scan_saturation = self.settings.camera.saturation
 
         self.eventmanager.subscribe(FSEvents.ON_IMAGE_PROCESSED, self.image_processed)
-        self._logger.info("Laser Scan Processor initilized...")
+
+        self._logger.info("Laser Scan Processor initilized..."+str(self))
 
 
     def on_receive(self, event):
@@ -104,17 +103,23 @@ class FSScanProcessorSingleton(FSScanProcessorInterface):
         if event[FSEvents.COMMAND] == FSScanProcessorCommand.UPDATE_SETTINGS:
             self.update_settings(event['SETTINGS'])
 
+        if event[FSEvents.COMMAND] == FSScanProcessorCommand.UPDATE_CONFIG:
+            self.update_settings(event['CONFIG'])
+
         if event[FSEvents.COMMAND] == FSScanProcessorCommand.GET_HARDWARE_INFO:
             return self.hardwareController.get_firmware_version()
 
-        if event[FSEvents.COMMAND] == FSScanProcessorCommand.GET_CALIBRATION_STREAM:
-            return self.create_calibration_stream()
+        if event[FSEvents.COMMAND] == FSScanProcessorCommand.GET_ADJUSTMENT_STREAM:
+            return self.create_adjustment_stream()
 
         if event[FSEvents.COMMAND] == FSScanProcessorCommand.GET_LASER_STREAM:
             return self.create_laser_stream()
 
         if event[FSEvents.COMMAND] == FSScanProcessorCommand.GET_TEXTURE_STREAM:
             return self.create_texture_stream()
+
+        if event[FSEvents.COMMAND] == FSScanProcessorCommand.GET_CALIBRATION_STREAM:
+            return self.create_calibration_stream()
 
         if event[FSEvents.COMMAND] == FSScanProcessorCommand.START_CALIBRATION:
             return self.start_calibration()
@@ -149,10 +154,18 @@ class FSScanProcessorSingleton(FSScanProcessorInterface):
     def create_texture_stream(self):
         try:
             image = self.hardwareController.get_picture()
-            image = self.image_processor.get_texture_stream_frame(image)
+            #image = self.image_processor.get_texture_stream_frame(image)
             return image
         except StandardError, e:
             #self._logger.error(e)
+            pass
+
+    def create_adjustment_stream(self):
+        try:
+            image = self.hardwareController.get_picture()
+            image = self.image_processor.get_adjustment_stream_frame(image)
+            return image
+        except StandardError, e:
             pass
 
     def create_calibration_stream(self):
@@ -181,6 +194,12 @@ class FSScanProcessorSingleton(FSScanProcessorInterface):
             #self.hardwareController.led.on(self.settings.led.red, self.settings.led.green, self.settings.led.blue)
         except StandardError, e:
             # images are dropped this cateched exception.. no error hanlder needed here.
+            pass
+
+    def update_config(self, config):
+        try:
+            self.config.update(config)
+        except StandardError, e:
             pass
 
     def start_calibration(self):
@@ -232,7 +251,6 @@ class FSScanProcessorSingleton(FSScanProcessorInterface):
         self._prefix = datetime.datetime.fromtimestamp(time.time()).strftime('%Y%m%d-%H%M%S')
         self.point_cloud = FSPointCloud(color=self._is_color_scan)
 
-
         if self._is_color_scan:
             self._total = self._number_of_pictures * 2 * self.config.laser.numbers
             self.actor_ref.tell({FSEvents.COMMAND: FSScanProcessorCommand._SCAN_NEXT_TEXTURE_POSITION})
@@ -257,7 +275,7 @@ class FSScanProcessorSingleton(FSScanProcessorInterface):
         self.settings.camera.saturation = 0
         self.hardwareController.led.on(self.config.texture_illumination, self.config.texture_illumination, self.config.texture_illumination)
         self.hardwareController.camera.device.flushStream()
-        self.hardwareController.camera.device.startStream(exposure_type="flash")
+        #self.hardwareController.camera.device.startStream(exposure_type="flash")
 
 
     def finish_texture_scan(self):
@@ -272,10 +290,6 @@ class FSScanProcessorSingleton(FSScanProcessorInterface):
         self.settings.camera.brightness = self._scan_brightness
         self.settings.camera.contrast = self._scan_contrast
         self.settings.camera.saturation = self._scan_saturation
-
-
-
-        #self._worker_pool.kill()
 
     def scan_next_texture_position(self):
         if not self._stop_scan:
@@ -313,7 +327,7 @@ class FSScanProcessorSingleton(FSScanProcessorInterface):
         self.hardwareController.led.on(self.settings.led.red, self.settings.led.green, self.settings.led.blue)
         self.hardwareController.laser.on()
 
-        self.hardwareController.camera.device.startStream()
+        #self.hardwareController.camera.device.startStream()
         self.hardwareController.camera.device.flushStream()
 
         if not self._worker_pool.workers_active():
@@ -430,7 +444,7 @@ class FSScanProcessorSingleton(FSScanProcessorInterface):
 
         event = FSEvent()
         event.command = 'COMPLETE'
-        self.eventmanager.publish(FSEvents.COMMAND, event)
+        self.eventmanager.publish(FSEvents.COMMAND, event, None)
 
         message = {
             "message": "SCAN_COMPLETE",
@@ -467,3 +481,13 @@ class FSScanProcessorSingleton(FSScanProcessorInterface):
         self._number_of_pictures = 0
         self._total = 0
         self.point_cloud = None
+
+@singleton(
+    instance=FSScanProcessor
+)
+class FSScanProcessorSingleton(FSScanProcessor):
+    def __init__(self, instance):
+        #super(FSScanProcessor, self).__init__(self, config, settings, eventmanager, imageprocessor, hardwarecontroller, calibration)
+        self._logger = logging.getLogger(__name__)
+        self._logger.debug("Start here ")
+        self.instance = instance.start()
