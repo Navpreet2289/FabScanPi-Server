@@ -5,11 +5,9 @@ __maintainer__ = "Mario Lukas"
 __email__ = "info@mariolukas.de"
 
 import time
-import datetime
 import multiprocessing
 import logging
-import numpy as np
-
+from datetime import datetime
 
 from fabscan.FSConfig import ConfigInterface
 from fabscan.FSSettings import SettingsInterface
@@ -61,6 +59,7 @@ class FSScanProcessor(FSScanProcessorInterface):
         self.current_position = 0
         self._stop_scan = False
         self._current_laser_position = 1
+        self._starttime = 0
 
         self.utils = FSSystem()
 
@@ -246,9 +245,10 @@ class FSScanProcessor(FSScanProcessorInterface):
 
         self._number_of_pictures = 3200 / int(self.settings.resolution)
         self.current_position = 0
+        self._starttime = self.get_time_stamp()
 
         # TODO: rename prefix to scan_id
-        self._prefix = datetime.datetime.fromtimestamp(time.time()).strftime('%Y%m%d-%H%M%S')
+        self._prefix = datetime.fromtimestamp(time.time()).strftime('%Y%m%d-%H%M%S')
         self.point_cloud = FSPointCloud(color=self._is_color_scan)
 
         if self._is_color_scan:
@@ -370,7 +370,7 @@ class FSScanProcessor(FSScanProcessorInterface):
     def stop_scan(self):
         self._stop_scan = True
         self._worker_pool.kill()
-
+        self._starttime = 0
         self.utils.delete_scan(self._prefix)
         self.reset_scanner_state()
         self._logger.info("Scan stoped")
@@ -385,8 +385,10 @@ class FSScanProcessor(FSScanProcessorInterface):
     def image_processed(self, eventmanager, event):
         points = []
 
+        scan_state = 'texture_scan'
         if event['image_type'] == 'depth':
 
+            scan_state = 'object_scan'
             point_cloud = zip(event['point_cloud'][0], event['point_cloud'][1], event['point_cloud'][2],
                               event['texture'][0], event['texture'][1], event['texture'][2])
 
@@ -411,7 +413,10 @@ class FSScanProcessor(FSScanProcessorInterface):
         message = {
             "points": points,
             "progress": self._progress,
-            "resolution": self._total
+            "resolution": self._total,
+            "starttime": self._starttime,
+            "timestamp": self.get_time_stamp(),
+            "state": scan_state
         }
 
         self.eventmanager.broadcast_client_message(FSEvents.ON_NEW_PROGRESS, message)
@@ -426,6 +431,7 @@ class FSScanProcessor(FSScanProcessorInterface):
 
     def scan_complete(self):
 
+        self._starttime = 0
         self._logger.info("Scan complete writing pointcloud files with %i points." % (self.point_cloud.get_size(),))
         self.point_cloud.saveAsFile(self._prefix)
         settings_filename = self.config.folders.scans+self._prefix+"/"+self._prefix+".fab"
@@ -480,7 +486,11 @@ class FSScanProcessor(FSScanProcessorInterface):
         self.current_position = 0
         self._number_of_pictures = 0
         self._total = 0
+        self._starttime = 0
         self.point_cloud = None
+
+    def get_time_stamp(self):
+        return int(datetime.now().strftime("%s%f"))/1000
 
 @singleton(
     instance=FSScanProcessor

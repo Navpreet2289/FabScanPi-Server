@@ -1,11 +1,12 @@
 import numpy as np
 from scipy import optimize
-import time
+from datetime import datetime
 import logging
 import struct
 from fabscan.util.FSInject import singleton
 from fabscan.file.FSImage import FSImage
 import cv2
+
 
 
 from fabscan.FSConfig import ConfigInterface
@@ -39,6 +40,8 @@ class FSCalibration(FSCalibrationInterface):
         self.settings = settings
         self._eventmanager = eventmanager.instance
 
+        self.timestamp = 0
+        self.starttime = 0
         self.shape = None
         self.camera_matrix = None
         self.distortion_vector = None
@@ -71,6 +74,8 @@ class FSCalibration(FSCalibrationInterface):
         self.distortion_vector = None
         self.image_points = []
         self.object_points = []
+        self.timestamp = 0
+        self.starttime = 0
 
     def start(self):
         self._hardwarecontroller.reset_devices()
@@ -81,6 +86,8 @@ class FSCalibration(FSCalibrationInterface):
         self.settings.camera.brightness = 50
         self.reset_calibration_values()
         self.settings.threshold = 25
+        self.starttime = self.get_time_stamp()
+
 
         message = {
             "message": "START_CALIBRATION",
@@ -146,7 +153,10 @@ class FSCalibration(FSCalibrationInterface):
                 self._logger.debug("Calibration Position "+str(self.current_position)+ " of "+str(self.total_positions))
                 message = {
                     "progress": self.current_position,
-                    "resolution": self.total_positions
+                    "resolution": self.total_positions,
+                    "starttime": self.starttime,
+                    "timestamp": self.get_time_stamp(),
+                    "state": "calibration"
                 }
                 self._eventmanager.broadcast_client_message(FSEvents.ON_NEW_PROGRESS, message)
                 self.current_position += 1
@@ -469,6 +479,9 @@ class FSCalibration(FSCalibrationInterface):
         for point in point_cloud:
             frame += struct.pack("<fffBBB", point[0], point[1], point[2], 255, 0, 0)
         stream.write(frame)
+
+    def get_time_stamp(self):
+        return int(datetime.now().strftime("%s%f"))/1000
 
 
 import numpy.linalg
