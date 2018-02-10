@@ -10,6 +10,7 @@ import urllib
 import time
 import StringIO
 import logging
+import socket, errno
 from PIL import Image
 from BaseHTTPServer import BaseHTTPRequestHandler
 from SimpleHTTPServer import SimpleHTTPRequestHandler
@@ -45,7 +46,10 @@ def CreateRequestHandler(config, scanprocessor):
             try:
                 SimpleHTTPRequestHandler.__init__(self, *args, **kwargs)
             except StandardError, e:
-                self._logger.error(e)
+                self._logger.warn("Stream closed by client... ")
+                self.close_mjpeg_stream = True
+                self.scanprocessor.stop()
+
 
         def do_API_CALL(self, action, data=None):
             self.send_response(200)
@@ -72,39 +76,48 @@ def CreateRequestHandler(config, scanprocessor):
 
         def do_GET(self):
 
+             try:
+                 if "api" in self.path:
+                     self.do_API_CALL("GET")
 
-             if "api" in self.path:
-                 self.do_API_CALL("GET")
-
-             elif "stream" in self.path:
+                 elif "stream" in self.path:
 
 
-                 stream_id = self.path.split('/')[-1]
-                 if stream_id == 'laser.mjpeg':
-                    self.get_stream(FSScanProcessorCommand.GET_LASER_STREAM)
+                     stream_id = self.path.split('/')[-1]
+                     if stream_id == 'laser.mjpeg':
+                        self.get_stream(FSScanProcessorCommand.GET_LASER_STREAM)
 
-                 elif stream_id == 'texture.mjpeg':
-                    self.get_stream(FSScanProcessorCommand.GET_TEXTURE_STREAM)
+                     elif stream_id == 'texture.mjpeg':
+                        self.get_stream(FSScanProcessorCommand.GET_TEXTURE_STREAM)
 
-                 elif stream_id == 'calibration.mjpeg':
-                    self.get_stream(FSScanProcessorCommand.GET_CALIBRATION_STREAM)
+                     elif stream_id == 'calibration.mjpeg':
+                        self.get_stream(FSScanProcessorCommand.GET_CALIBRATION_STREAM)
 
-                 elif stream_id == 'adjustment.mjpeg':
-                    self.get_stream(FSScanProcessorCommand.GET_ADJUSTMENT_STREAM)
+                     elif stream_id == 'adjustment.mjpeg':
+                        self.get_stream(FSScanProcessorCommand.GET_ADJUSTMENT_STREAM)
+
+                     else:
+
+                        self.bad_request()
+                        self.end_headers()
 
                  else:
+                    """Serve a GET request."""
+                    f = self.send_head()
+                    if f:
+                        self.copyfile(f, self.wfile)
+                        f.close()
 
-                    self.bad_request()
-                    self.end_headers()
+                 return
 
-             else:
-                """Serve a GET request."""
-                f = self.send_head()
-                if f:
-                    self.copyfile(f, self.wfile)
-                    f.close()
+             except socket.error, e:
+                 self._logger.error("Hier "+str(e))
 
-             return
+                 # A socket error
+             except IOError, e:
+                 if e.errno == errno.EPIPE:
+                     self._logger.error("Broken Pipe here... close pykka aktor here")
+                     # EPIPE error
 
         def get_stream(self, type):
 
@@ -145,12 +158,15 @@ def CreateRequestHandler(config, scanprocessor):
 
                     time.sleep(0.05)
 
+
+
                except IOError as e:
                     if hasattr(e, 'errno') and e.errno == 32:
                         self.rfile.close()
                         return
                     else:
                         pass
+
 
 
         def end_headers (self):

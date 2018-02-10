@@ -73,7 +73,7 @@
 
   or to (re) start:
 
-    sudo /etc/init.d/fabscanpi-server stop  
+    sudo /etc/init.d/fabscanpi-server start  
 
 
 - **How can I use the latest (probably unstable) software?**

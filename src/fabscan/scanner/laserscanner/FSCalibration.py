@@ -158,7 +158,11 @@ class FSCalibration(FSCalibrationInterface):
                     "timestamp": self.get_time_stamp(),
                     "state": "calibration"
                 }
-                self._eventmanager.broadcast_client_message(FSEvents.ON_NEW_PROGRESS, message)
+                try:
+                    self._eventmanager.broadcast_client_message(FSEvents.ON_NEW_PROGRESS, message)
+                except StandardError, e:
+                    self._logger.error(e);
+
                 self.current_position += 1
             else:
                 break
