@@ -109,7 +109,7 @@ def CreateRequestHandler(config, scanprocessor):
                  return
 
              except socket.error, e:
-                 self._logger.error("Hier "+str(e))
+                 self._logger.error(e)
 
                  # A socket error
              except IOError, e:

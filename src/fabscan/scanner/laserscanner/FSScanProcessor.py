@@ -162,7 +162,7 @@ class FSScanProcessor(FSScanProcessorInterface):
     def create_adjustment_stream(self):
         try:
             image = self.hardwareController.get_picture()
-            image = self.image_processor.get_adjustment_stream_frame(image)
+            #image = self.image_processor.get_adjustment_stream_frame(image)
             return image
         except StandardError, e:
             pass
@@ -170,7 +170,7 @@ class FSScanProcessor(FSScanProcessorInterface):
     def create_calibration_stream(self):
         try:
             image = self.hardwareController.get_picture()
-            image = self.image_processor.get_calibration_stream_frame(image)
+            #image = self.image_processor.get_calibration_stream_frame(image)
             return image
         except StandardError, e:
             # images are dropped this cateched exception.. no error hanlder needed here.
