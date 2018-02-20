@@ -15,9 +15,11 @@ import traceback
 from datetime import datetime
 
 
+
 from fabscan.util.FSInject import inject, singleton
 from fabscan.FSConfig import ConfigInterface
 from fabscan.FSSettings import SettingsInterface
+from fabscan.scanner.interfaces.FSImageProcessor import ImageProcessorInterface
 
 try:
 	import picamera
@@ -40,9 +42,6 @@ class FSCamera():
 
         if config.camera.type == 'dummy':
             self.device = DummyCam()
-
-        if config.camera.type == 'C270':
-            self.device = C270(self.camera_buffer)
 
     def is_connected(self):
         return self.device.isAlive()
@@ -74,89 +73,107 @@ class FSRingBuffer(threading.Thread):
 
 @inject(
     config=ConfigInterface,
-    settings=SettingsInterface
+    settings=SettingsInterface,
+    imageprocessor=ImageProcessorInterface
 )
-class C270(threading.Thread):
-    def __init__(self, cambuffer, config, settings):
-        threading.Thread.__init__(self)
+class CamProcessor(threading.Thread):
+    def __init__(self, owner, fs_ring_buffer, resolution, mode, config, settings, imageprocessor):
+        super(CamProcessor, self).__init__()
+        self.stream = io.BytesIO()
+        self.event = threading.Event()
+        self.terminated = False
+        self.config = config
+        self.settings = settings
+        self.imageprocessor = imageprocessor
+        self.imageprocessor.init(resolution)
 
-        self.config = config.instance
-        self.settings = settings.instance
-        self.camera_buffer = cambuffer
-        self.isRecording = True
-        self.timestamp = int(round(time.time() * 1000))
-        self.semaphore = threading.BoundedSemaphore()
-
-        self.prior_image = None
-        self.stream = None
-
-        self._logger =  logging.getLogger(__name__)
-
-        # auto exposure mode for logitech C270 can not be controlled by opencv, with this work
-        # around the exposer mode can be set direcly by v4l2
-        # a value of 1 deactivates auto exposure
-        #subprocess.call(["v4l2-ctl", "--set-ctrl", "exposure_auto=1"])
-
-        try:
-            self.camera = cv2.VideoCapture(self.config.camera.device)
-        except:
-            self._logger.error("Can not create camera device.")
-            return
-
-        # this sets the resolution of the C270 which is 1280x720 by default
-        self.camera.set(3,1280)
-        self.camera.set(4,720)
-        self._logger.debug("Selected Camera Device %i" % (int(self.config.camera.device)))
+        self._logger = logging.getLogger(__name__)
+        self.owner = owner
+        self.mode = mode
+        self.fs_ring_buffer = fs_ring_buffer
         self.start()
 
     def run(self):
+        # This method runs in a separate thread
+        while not self.terminated:
+            # Wait for an image to be written to the stream
+            if self.event.wait(1):
+                try:
+                    self.stream.seek(0)
+                    data = np.fromstring(self.stream.getvalue(), dtype=np.uint8)
+                    image = cv2.imdecode(data, 1)
 
-        try:
-            if(self.camera == None):
-                sys.exit()
+                    if self.config.camera.rotate == "True":
+                        image = cv2.transpose(image)
+                    if self.config.camera.hflip == "True":
+                        image = cv2.flip(image, 1)
+                    if self.config.camera.vflip == "True":
+                        image = cv2.flip(image, 0)
 
-            self._logger.debug("Camera stream started")
+                    if self.mode == "settings":
+                        image = self.imageprocessor.get_laser_stream_frame(image)
 
+                    self.fs_ring_buffer.append(image)
 
-            #or foo in self.camera.capture_continuous(stream, format='jpeg', use_video_port=True):
-            while True:
-                self.camera.set(cv2.cv.CV_CAP_PROP_BRIGHTNESS,self.settings.camera.brightness)
-                self.camera.set(cv2.cv.CV_CAP_PROP_CONTRAST,self.settings.camera.contrast)
-                _, image = self.camera.read()
-                time.sleep(0.1)
-                #self.semaphore.acquire()
-                self.camera_buffer.append(image)
-                #self.semaphore.release()
+                finally:
+                    # Reset the stream and event
+                    self.stream.seek(0)
+                    self.stream.truncate()
+                    self.event.clear()
 
-        finally:
-            #subprocess.call(["v4l2-ctl", "--set-ctrl", "exposure_auto=3"])
-            self.camera.release()
-            self.camera = None
-            pass
+                    # Return ourselves to the available pool
+                    with self.owner.lock:
+                        self.owner.pool.append(self)
 
-    def flushStream(self):
-        self.camera_buffer.flush()
+class ProcessCamOutput(object):
+    def __init__(self, fs_ring_buffer, resolution, mode="default"):
+        self.done = False
+        # Construct a pool of 4 image processors along with a lock
+        # to control access between threads
+        self.lock = threading.Lock()
+        self.pool = [CamProcessor(self, fs_ring_buffer, resolution, mode) for i in range(4)]
+        self.processor = None
+        self._logger = logging.getLogger(__name__)
 
-    def getStream(self, first=False):
-        self.timestamp = int(round(time.time() * 1000))
-        if(self.isRecording == False):
-            self.semaphore.acquire()
-            self.isRecording = True
-            self.semaphore.release()
-            self.run()
-        return self.camera_buffer.get()
+    def write(self, buf):
+        if buf.startswith(b'\xff\xd8'):
+            # New frame; set the current processor going and grab
+            # a spare one
+            if self.processor:
+                self.processor.event.set()
+            with self.lock:
+                if self.pool:
+                    self.processor = self.pool.pop()
+                else:
+                    # No processor's available, we'll have to skip
+                    # this frame; you may want to print a warning
+                    # here to see whether you hit this case
+                    self.processor = None
+        if self.processor:
+            self.processor.stream.write(buf)
 
-    def getPreviewImages(self, first=False):
-        return self.preview_buffer.get()
-
-    def objectExposure(self):
-        pass
-
-    def textureExposure(self):
-        pass
-
-    def close(self):
-        pass
+    def flush(self):
+        # When told to flush (this indicates end of recording), shut
+        # down in an orderly fashion. First, add the current processor
+        # back to the pool
+        if self.processor:
+            with self.lock:
+                self.pool.append(self.processor)
+                self.processor = None
+        # Now, empty the pool, joining each thread as we go
+        while True:
+            with self.lock:
+                try:
+                    proc = self.pool.pop()
+                except IndexError:
+                    pass # pool is empty
+            try:
+                proc.terminated = True
+                proc.join()
+            except StandardError as e:
+                pass
+            if self.pool.empty:
+                break
 
 @inject(
     config=ConfigInterface,
@@ -164,109 +181,33 @@ class C270(threading.Thread):
 )
 class PiCam(threading.Thread):
     camera = None
-    def __init__(self, cambuffer, config, settings):
+    def __init__(self, cam_ring_buffer, config, settings):
         threading.Thread.__init__(self)
-        self.config = config
-        self.settings = settings
-
-        self.isRecording = True
-        self.timestamp = int(round(time.time() * 1000))
-        self.semaphore = threading.BoundedSemaphore()
-        self.camera = None
-        self.prior_image = None
-        self.stream = None
-        self.camera_buffer = cambuffer
-        self.awb_default_gain = 0
-        self.is_idle = True
-        self._current_mode = 'custom'
-        self._idle_seconds = 120
-        self._idle_timestamp = 0
-        self._compare_time = datetime.max
-        self._start_time = datetime.max
         self._logger = logging.getLogger(__name__)
 
+        self.config = config
+        self.settings = settings
+        self.timestamp = int(round(time.time() * 1000))
+
+        self.camera = None
+        self.output = None
+        self.resolution = (self.config.camera.preview_resolution.width, self.config.camera.preview_resolution.height)
+
+
+        self.camera_buffer = cam_ring_buffer
+        self.camera = picamera.PiCamera(resolution=self.resolution)
+        self.idle = True
         self.start()
 
+
     def run(self):
-        try:
-                try:
-                    self.camera = picamera.PiCamera()
-                    self._logger.info("Camera module ready...")
-                except picamera:
-                    self._logger.error("Can not create camera device.")
+            while True:
+                if not self.idle and self.camera.recording:
+                    self.camera.wait_recording(0.5)
+                else:
+                    time.sleep(0.05)
 
-                self.camera.resolution = (self.config.camera.resolution.width, self.config.camera.resolution.height)
-                #self.camera.framerate = 24
-
-                while True:
-
-                    if not self.is_idle:
-                       try:
-                            stream = io.BytesIO()
-                            for foo in self.camera.capture_continuous(stream, format='jpeg', use_video_port=True):
-
-                                self.check_for_stream_suspend()
-
-                                self.camera.contrast = self.settings.camera.contrast
-                                self.camera.brightness = self.settings.camera.brightness
-                                self.camera.saturation = self.settings.camera.saturation
-                                stream.seek(0)
-
-                                self.camera.capture(stream, format='jpeg')
-                                # Construct a numpy array from the stream
-                                data = np.fromstring(stream.getvalue(), dtype=np.uint8)
-                                # "Decode" the image from the array, preserving colour
-                                image = cv2.imdecode(data, 1)
-
-                                if self.config.camera.rotate == "True":
-                                    image = cv2.transpose(image)
-                                if self.config.camera.hflip == "True":
-                                    image = cv2.flip(image, 1)
-                                if self.config.camera.vflip == "True":
-                                    image = cv2.flip(image, 0)
-
-                                try:
-                                    self.semaphore.acquire()
-                                    self.camera_buffer.append(image)
-                                finally:
-                                    self.semaphore.release()
-
-                                stream.truncate()
-                                stream.seek(0)
-                       except picamera.PiCameraClosed:
-                           self._logger.warning("Camera already closed.")
-
-                    else:
-
-                        time.sleep(0.05)
-
-        except(RuntimeError, TypeError, NameError):
-            traceback.print_exc(file=sys.stdout)
-            self._logger.debug("Runtime error in camera handler")
-
-        finally:
-            self.camera = None
-            pass
-
-    def check_for_stream_suspend(self):
-        self._compare_time = datetime.now()
-        if (self._compare_time - self._start_time).total_seconds() > self._idle_seconds and not self.is_idle:
-            self._logger.debug("Stream suspended... ")
-            self.is_idle = True
-
-    def flushStream(self):
-        self.camera_buffer.flush()
-
-    def setResolution(self, width, height):
-        self.camera.resolution = (width, height)
-
-    def get_resolution(self):
-        if self._rotate:
-            return int(self.config.camera.resolution.height), int(self.config.camera.resolution.width)
-        else:
-            return int(self.config.camera.resolution.width), int(self.config.camera.resolution.height)
-
-    def getFrame(self):
+    def get_frame(self):
         image = None
         #if self.is_idle:
         self._start_time = datetime.now()
@@ -276,44 +217,69 @@ class PiCam(threading.Thread):
            image = self.camera_buffer.get()
         return image
 
-    def isIdle(self):
-        return self.is_idle
 
-    def startStream(self, auto_exposure=False, exposure_type="flash"):
-        self.setExposureMode(auto_exposure=auto_exposure, exposure_type=exposure_type)
-        #self.semaphore.acquire()
-        #self.is_idle = False
-        #self.semaphore.release()
+    def set_mode(self, mode):
+        camera_mode = {
+            "calibration": self.set_calibration_mode,
+            "settings": self.set_settings_preview,
+            "default": self.set_default_mode,
+            "alignment": self.set_alignement_preview
+        }
+        camera_mode[mode]()
 
-    def stopStream(self):
-        #self.semaphore.acquire()
-        self.is_idle = True
-        #self.semaphore.release()
+    def set_alignement_preview(self):
+        self.resolution = (self.config.camera.preview_resolution.width, self.config.camera.preview_resolution.height)
+        self.output = ProcessCamOutput(self.camera_buffer, self.resolution, mode="alignment")
 
-    def flushStream(self):
+    def set_settings_preview(self):
+        self.resolution = (self.config.camera.preview_resolution.width, self.config.camera.preview_resolution.height)
+        self.output = ProcessCamOutput(self.camera_buffer, self.resolution, mode="settings")
+
+    def set_default_mode(self):
+        self.resolution = (self.config.camera.resolution.width, self.config.camera.resolution.height)
+        self.output = ProcessCamOutput(self.camera_buffer, self.resolution)
+
+    def set_calibration_mode(self):
+        self.resolution = (self.config.camera.resolution.width, self.config.camera.resolution.height)
+        self.output = ProcessCamOutput(self.camera_buffer, self.resolution)
+
+    def start_stream(self, mode="default"):
+
+            try:
+                self.set_mode(mode)
+
+                if self.camera is None:
+                    self.camera = picamera.PiCamera(resolution=self.resolution)
+
+                self.idle = False
+                self.camera.start_recording(self.output, format='mjpeg')
+                self._logger.debug("Cam Stream with Resolution "+self.resolution + " started")
+            except StandardError as e:
+                self._logger.error("Not able to initialize Raspberry Pi Camera.")
+                self._logger.error(e)
+
+    def stop_stream(self):
+        time.sleep(0.5)
+        try:
+            if self.camera.recording:
+                self.camera.stop_recording()
+            while self.camera.recording:
+                time.sleep(0.4)
+            self.camera.close()
+            self.camera = None
+            self.idle = True
+            self._logger.debug("Cam Stream with Resolution "+self.resolution +" stopped")
+
+        except StandardError as e:
+            self._logger.error("Not able to stop camera.")
+            self._logger.error(e)
+
+    def is_idle(self):
+        return self.idle
+
+    def flush_stream(self):
         self.camera_buffer.flush()
 
-
-    def setExposureMode(self, auto_exposure=False, exposure_type="flash"):
-                if not auto_exposure:
-                        self.camera.iso = 120
-                        # Wait for the automatic gain control to settle
-                        time.sleep(1.4)
-                        # Now fix the values
-                        self.camera.shutter_speed = self.camera.exposure_speed
-                        self.camera.exposure_mode = 'off'
-                        g = self.camera.awb_gains
-                        self.camera.awb_mode = 'off'
-                        self.camera.awb_gains = g
-                        self._current_mode = 'custom'
-
-                else:
-                        # Now fix the values
-                        #self.camera.exposure_mode = exposure_type
-                        self.camera.awb_mode = exposure_type
-                        time.sleep(2.4)
-                        self.flushStream()
-                        self._current_mode = 'auto'
 
 
 class DummyCam:

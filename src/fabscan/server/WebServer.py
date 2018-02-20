@@ -32,8 +32,7 @@ class FSWebServer(threading.Thread):
     def __init__(self, config, scanprocessor):
         threading.Thread.__init__(self)
         self.config = config
-        self.scanprocessor = scanprocessor.start()
-
+        self.scanprocessor = scanprocessor
 
     def run(self):
         self.webserver = WebServer(self.config, self.scanprocessor)

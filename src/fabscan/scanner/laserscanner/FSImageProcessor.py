@@ -69,6 +69,11 @@ class ImageProcessor(ImageProcessorInterface):
         self._criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
         self.object_pattern_points = self.create_object_pattern_points()
 
+    def init(self, resolution):
+        self.image_height = resolution[0]
+        self.image_width = resolution[1]
+        self._weight_matrix = self._compute_weight_matrix()
+
     def _compute_weight_matrix(self):
         _weight_matrix = np.array(
             (np.matrix(np.linspace(0, self.image_width - 1, self.image_width)).T *
@@ -253,12 +258,12 @@ class ImageProcessor(ImageProcessorInterface):
         c = zip(u, v)
 
         for t in c:
-            cv2.line(image, (int(t[0]) - 4, int(t[1])), (int(t[0]) + 4, int(t[1])), (255, 0, 0), thickness=1,
+            cv2.line(image, (int(t[0]) - 1, int(t[1])), (int(t[0]) + 1, int(t[1])), (255, 0, 0), thickness=1,
                      lineType=8, shift=0)
 
-        r = 800.0 / image.shape[1]
-        dim = (800, int(image.shape[0] * r))
-        image = cv2.resize(image, dim, interpolation=cv2.INTER_AREA)
+        #r = 800.0 / image.shape[1]
+        #dim = (800, int(image.shape[0] * r))
+        #image = cv2.resize(image, dim, interpolation=cv2.INTER_AREA)
 
         return image
 
@@ -392,6 +397,7 @@ class ImageProcessor(ImageProcessorInterface):
             if self.config.calibration.pattern.rows > 2 and self.config.calibration.pattern.columns > 2:
 
                 gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+
                 if flags is None:
                     ret, corners = cv2.findChessboardCorners(gray, (self.config.calibration.pattern.columns, self.config.calibration.pattern.rows), None)
                 else:

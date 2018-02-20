@@ -111,22 +111,24 @@ class FSHardwareControllerSingleton(FSHardwareControllerInterface):
         #self.serial_connection.flush()
 
     def settings_mode_on(self):
+        while not self.camera.device.is_idle():
+            time.sleep(0.1)
+        self.camera.device.start_stream(mode="settings")
         self._settings_mode_is_off = False
-        self.camera.device.flushStream()
-        #self.camera.device.startStream()
+        self.camera.device.flush_stream()
         self.laser.on(laser=0)
         self.turntable.start_turning()
 
-
     def settings_mode_off(self):
-        self._settings_mode_is_off = True
-        self.reset_hardware()
 
+        self.turntable.stop_turning()
+        self.led.off()
+        self.laser.off(laser=0)
+        self.camera.device.stop_stream()
+        self._settings_mode_is_off = True
 
     def get_picture(self):
-        #if self.camera.device.is_idle():
-        #    self.camera.device.startStream()
-        img = self.camera.device.getFrame()
+        img = self.camera.device.get_frame()
         return img
 
     def get_pattern_image(self):
@@ -146,7 +148,7 @@ class FSHardwareControllerSingleton(FSHardwareControllerInterface):
         #self._hardwarecontroller.led.on(30, 30, 30)
         self.laser.on(laser=index)
         time.sleep(3)
-        self.camera.device.flushStream()
+        self.camera.device.flush_stream()
         laser_image = self.get_picture()
         self.laser.off(laser=index)
         return laser_image
@@ -164,7 +166,7 @@ class FSHardwareControllerSingleton(FSHardwareControllerInterface):
 
 
         self.turntable.step_interval(steps, speed)
-        img = self.camera.device.getFrame()
+        img = self.camera.device.get_frame()
         return img
 
 
@@ -177,10 +179,9 @@ class FSHardwareControllerSingleton(FSHardwareControllerInterface):
     def camera_is_connected(self):
        return self.camera.is_connected()
 
-    def start_camera_stream(self):
-        pass
-        #self.camera.device.startStream()
+    def start_camera_stream(self, mode="default"):
+        self.camera.device.start_stream(mode)
 
     def stop_camera_stream(self):
-        pass
-        #self.camera.device.stopStream()
+        self.camera.device.stop_stream()
+

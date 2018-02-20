@@ -29,7 +29,6 @@ def CreateRequestHandler(config, scanprocessor):
 
             self._logger = logging.getLogger(__name__)
 
-            self.scanprocessor = scanprocessor
             self.api = FSRest()
             self.close_mjpeg_stream = False
 
@@ -46,10 +45,9 @@ def CreateRequestHandler(config, scanprocessor):
             try:
                 SimpleHTTPRequestHandler.__init__(self, *args, **kwargs)
             except StandardError, e:
-                self._logger.warn("Stream closed by client... ")
                 self.close_mjpeg_stream = True
-                self.scanprocessor.stop()
-
+                #self.scanprocessor.stop()
+                self._logger.debug("MJPEG Stream closed by client.")
 
         def do_API_CALL(self, action, data=None):
             self.send_response(200)
@@ -82,24 +80,24 @@ def CreateRequestHandler(config, scanprocessor):
 
                  elif "stream" in self.path:
 
-
                      stream_id = self.path.split('/')[-1]
+
                      if stream_id == 'laser.mjpeg':
                         self.get_stream(FSScanProcessorCommand.GET_LASER_STREAM)
 
                      elif stream_id == 'texture.mjpeg':
                         self.get_stream(FSScanProcessorCommand.GET_TEXTURE_STREAM)
 
-                     elif stream_id == 'calibration.mjpeg':
-                        self.get_stream(FSScanProcessorCommand.GET_CALIBRATION_STREAM)
+                     elif stream_id == 'laser.mjpeg':
+                        self.get_stream(FSScanProcessorCommand.GET_LASER_STREAM)
 
                      elif stream_id == 'adjustment.mjpeg':
                         self.get_stream(FSScanProcessorCommand.GET_ADJUSTMENT_STREAM)
 
                      else:
 
-                        self.bad_request()
-                        self.end_headers()
+                            self.bad_request()
+                            self.end_headers()
 
                  else:
                     """Serve a GET request."""
@@ -120,6 +118,7 @@ def CreateRequestHandler(config, scanprocessor):
                      # EPIPE error
 
         def get_stream(self, type):
+               self.scanprocessor = scanprocessor.start()
 
                self.send_response(200)
                #self.send_header('Pragma:', 'no-cache');
@@ -129,12 +128,13 @@ def CreateRequestHandler(config, scanprocessor):
                BaseHTTPRequestHandler.end_headers(self)
 
                try:
-                    while True:
-                        if self.close_mjpeg_stream:
-                            break
+                    while not self.close_mjpeg_stream:
 
-                        future_image = self.scanprocessor.ask({FSEvents.COMMAND: type}, block=False)
-                        image = future_image.get()
+                        try:
+                            future_image = self.scanprocessor.ask({FSEvents.COMMAND: type}, block=False)
+                            image = future_image.get()
+                        except StandardError as e:
+                            self._logger.error(e)
 
                         if image is not None:
                             image = image[:, :, ::-1]
@@ -154,6 +154,7 @@ def CreateRequestHandler(config, scanprocessor):
                         else:
                             time.sleep(0.05)
 
+                    self.scanprocessor.stop()
                     self.close_mjpeg_stream = False
 
                     time.sleep(0.05)
@@ -166,6 +167,7 @@ def CreateRequestHandler(config, scanprocessor):
                         return
                     else:
                         pass
+                    self.scanprocessor.stop
 
 
 
