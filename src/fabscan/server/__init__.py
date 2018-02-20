@@ -88,7 +88,6 @@ class FSServer(object):
         self._logger.info("FabScanPi-Server "+str(__version__))
 
         try:
-            # inject "static" classed
             injector.provide(FSEventManagerInterface, FSEventManagerSingleton)
             injector.provide_instance(FSWebSocketServerInterface, FSWebSocketServer())
             injector.provide_instance(ConfigInterface, Config(self.config_file, True))

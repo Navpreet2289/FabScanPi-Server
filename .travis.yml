@@ -1,11 +1,11 @@
 dist: trusty
-group: deprecated-2017Q2
+group: deprecated-2017Q4
 language: python
 python:
 - 2.7_with_system_site_packages
 before_install:
 - sudo apt-get -qq update
-- sudo apt-get install -y build-essential python-setuptools debhelper cdbs dh-python
+- sudo apt-get install -y build-essential python-setuptools debhelper cdbs dh-python fakeroot
   python-pip rsync
 before_script:
 - pip install mkdocs
@@ -15,6 +15,7 @@ before_script:
 - echo $TRAVIS_TAG
 script: sudo make deb
 after_success:
+- ls -alh ../*.deb
 - curl -T ../*.deb -u $FTPUSER:$FTPPASSWORD ftp://mariolukas.de/release/
 - NOW=`date +%Y-%m-%d-%H-%M`
 - mkdocs build

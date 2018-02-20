@@ -34,6 +34,7 @@ class FSWebServer(threading.Thread):
         self.config = config
         self.scanprocessor = scanprocessor.start()
 
+
     def run(self):
         self.webserver = WebServer(self.config, self.scanprocessor)
         self.webserver.serve_forever()

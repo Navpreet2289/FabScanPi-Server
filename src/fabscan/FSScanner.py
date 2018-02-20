@@ -12,6 +12,7 @@ import multiprocessing
 from fabscan.FSVersion import __version__
 from fabscan.FSEvents import FSEventManagerInterface, FSEvents
 from fabscan.vision.FSMeshlab import FSMeshlabTask
+from fabscan.FSConfig import ConfigInterface
 from fabscan.FSSettings import SettingsInterface
 from fabscan.FSConfig import ConfigInterface
 from fabscan.scanner.interfaces.FSScanProcessor import FSScanProcessorCommand, FSScanProcessorInterface
@@ -60,7 +61,7 @@ class FSScanner(threading.Thread):
         self.settings = settings
         self.config = config
         self.eventManager = eventmanager.instance
-        self.scanProcessor = scanprocessor.start()
+        self.scanProcessor = scanprocessor.instance
 
         self._state = FSState.IDLE
         self._exit_requested = False

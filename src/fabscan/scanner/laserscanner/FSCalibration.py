@@ -4,6 +4,7 @@ from datetime import datetime
 import logging
 import struct
 from fabscan.util.FSInject import singleton
+from fabscan.util.FSUtil import FSSystem
 from fabscan.file.FSImage import FSImage
 import cv2
 
@@ -50,6 +51,8 @@ class FSCalibration(FSCalibrationInterface):
         self.calibration_brightness = [50, 50, 50]
         self.quater_turn = int(self.config.turntable.steps / 4)
         self.steps_five_degree = 5.0 / (360.0 / self.config.turntable.steps)
+        self.calib_start = 65*self.steps_five_degree/5
+        self.calib_end = 115*self.steps_five_degree/5
         self.total_positions = int(((self.quater_turn/self.steps_five_degree)*4)+2)
         self.current_position = 0
 
@@ -78,7 +81,10 @@ class FSCalibration(FSCalibrationInterface):
         self.starttime = 0
 
     def start(self):
+
         self._hardwarecontroller.reset_devices()
+        tools = FSSystem()
+        tools.delete_folder(self.config.folders.scans+'calibration')
         self._hardwarecontroller.turntable.enable_motors()
         self._hardwarecontroller.led.on(self.calibration_brightness[0], self.calibration_brightness[1], self.calibration_brightness[2])
         self.settings.camera.contrast = 30
@@ -197,7 +203,7 @@ class FSCalibration(FSCalibrationInterface):
         image = self._capture_pattern()
         self.shape = image[:, :, 0].shape
 
-        if (position > 577 and position < 1022):
+        if (position > self.calib_start and position < self.calib_end):
             flags = cv2.CALIB_CB_FAST_CHECK | cv2.CALIB_CB_ADAPTIVE_THRESH | cv2.CALIB_CB_NORMALIZE_IMAGE
         else:
             flags = cv2.CALIB_CB_FAST_CHECK
@@ -216,7 +222,7 @@ class FSCalibration(FSCalibrationInterface):
 
         image = self._capture_pattern()
 
-        if (position > 577 and position < 1022):
+        if (position > self.calib_start and position < self.calib_end):
             flags = cv2.CALIB_CB_FAST_CHECK | cv2.CALIB_CB_ADAPTIVE_THRESH | cv2.CALIB_CB_NORMALIZE_IMAGE
         else:
             flags = cv2.CALIB_CB_FAST_CHECK
@@ -234,7 +240,7 @@ class FSCalibration(FSCalibrationInterface):
             # angel/(360/3200)
             try:
                 #Laser Calibration
-                if (position > 577 and position < 1022):
+                if (position > self.calib_start and position < self.calib_end):
                     #self.settings.camera.contrast = 40
                     self.settings.camera.brightness = 70
                     self._hardwarecontroller.led.off()
@@ -243,7 +249,7 @@ class FSCalibration(FSCalibrationInterface):
                         image = self._imageprocessor.pattern_mask(image, corners)
                         self.image = image
                         fs_image = FSImage()
-                        fs_image.save_image(image, position, "laser", dir_name="calibration")
+                        fs_image.save_image(image, self.current_position, "laser", dir_name="calibration")
                         points_2d, _ = self._imageprocessor.compute_2d_points(image, roi_mask=False, refinement_method='RANSAC')
                         point_3d = self._imageprocessor.compute_camera_point_cloud(
                             points_2d, distance, normal)
@@ -295,7 +301,7 @@ class FSCalibration(FSCalibrationInterface):
         # Laser triangulation
         # Save point clouds
         for i in xrange(self.config.laser.numbers):
-            self.save_point_cloud('PC' + str(i) + '.ply', self._point_cloud[i])
+            self.save_point_cloud('CALIBRATION_' + str(i) + '.ply', self._point_cloud[i])
 
         self.distance = [None, None]
         self.normal = [None, None]
@@ -462,7 +468,7 @@ class FSCalibration(FSCalibrationInterface):
 
     def save_point_cloud(self, filename, point_cloud):
         if point_cloud is not None:
-            f = open(filename, 'wb')
+            f = open(self.config.folders.scans+'/calibration/'+filename, 'wb')
             self.save_point_cloud_stream(f, point_cloud)
             f.close()
 
